@@ -42,9 +42,9 @@ namespace Jint.Runtime.Interpreter.Expressions
             bool cacheable = true;
             for (var i = 0; i < expression.Arguments.Count; i++)
             {
-                var expressionArgument = (Expression) expression.Arguments[i];
+                var expressionArgument = expression.Arguments[i];
                 cachedArgumentsHolder.JintArguments[i] = Build(_engine, expressionArgument);
-                cacheable &= expressionArgument is Literal;
+                cacheable &= expressionArgument.Type == Nodes.Literal;
                 _hasSpreads |= CanSpread(expressionArgument);
                 if (expressionArgument is ArrayExpression ae)
                 {
@@ -129,10 +129,9 @@ namespace Jint.Runtime.Interpreter.Expressions
 
             if (!func.IsObject())
             {
-                if (_engine._referenceResolver == null || !_engine._referenceResolver.TryGetCallable(_engine, callee, out func))
+                if (!_engine._referenceResolver.TryGetCallable(_engine, callee, out func))
                 {
-                    ExceptionHelper.ThrowTypeError(_engine,
-                        r == null ? "" : $"Property '{r.GetReferencedName()}' of object is not a function");
+                    ExceptionHelper.ThrowTypeError(_engine, r == null ? "" : $"Property '{r.GetReferencedName()}' of object is not a function");
                 }
             }
 

@@ -192,7 +192,7 @@ namespace Jint.Runtime
                 InternalTypes.Null => 0,
                 InternalTypes.Object when o is IPrimitiveInstance p => ToNumber(ToPrimitive(p.PrimitiveValue, Types.Number)),
                 InternalTypes.Boolean => (((JsBoolean) o)._value ? 1 : 0),
-                InternalTypes.String => ToNumber(o.AsStringWithoutTypeCheck()),
+                InternalTypes.String => ToNumber(o.ToString()),
                 InternalTypes.Symbol =>
                 // TODO proper TypeError would require Engine instance and a lot of API changes
                 ExceptionHelper.ThrowTypeErrorNoEngine<double>("Cannot convert a Symbol value to a number"),
@@ -454,11 +454,7 @@ namespace Jint.Runtime
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static string ToString(JsValue o)
         {
-            if (o.IsString())
-            {
-                return o.AsStringWithoutTypeCheck();
-            }
-            return ToStringNonString(o);
+            return o.IsString() ? o.ToString() : ToStringNonString(o);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -498,9 +494,11 @@ namespace Jint.Runtime
                 InternalTypes.Boolean => engine.Boolean.Construct(((JsBoolean) value)._value),
                 InternalTypes.Number => engine.Number.Construct(((JsNumber) value)._value),
                 InternalTypes.Integer => engine.Number.Construct(((JsNumber) value)._value),
-                InternalTypes.String => engine.String.Construct(value.AsStringWithoutTypeCheck()),
-                InternalTypes.Symbol => engine.Symbol.Construct(((JsSymbol) value)),
-                _ => ExceptionHelper.ThrowTypeError<ObjectInstance>(engine)
+                InternalTypes.String => engine.String.Construct(value.ToString()),
+                InternalTypes.Symbol => engine.Symbol.Construct((JsSymbol) value),
+                InternalTypes.Null => ExceptionHelper.ThrowTypeError<ObjectInstance>(engine, "Cannot convert undefined or null to object"),
+                InternalTypes.Undefined => ExceptionHelper.ThrowTypeError<ObjectInstance>(engine, "Cannot convert undefined or null to object"),
+                _ => ExceptionHelper.ThrowTypeError<ObjectInstance>(engine, "Cannot convert given item to object")
             };
         }
         
@@ -510,7 +508,7 @@ namespace Jint.Runtime
             MemberExpression expression,
             string referenceName)
         {
-            if (o._type < InternalTypes.Boolean && (engine.Options.ReferenceResolver?.CheckCoercible(o)).GetValueOrDefault() != true)
+            if (o._type < InternalTypes.Boolean && !engine.Options.ReferenceResolver.CheckCoercible(o))
             {
                 ThrowTypeError(engine, o, expression, referenceName);
             }
@@ -522,8 +520,8 @@ namespace Jint.Runtime
             MemberExpression expression,
             string referencedName)
         {
-            referencedName ??= "The value";
-            var message = $"{referencedName} is {o}";
+            referencedName ??= "unknown";
+            var message = $"Cannot read property '{referencedName}' of {o}";
             throw new JavaScriptException(engine.TypeError, message).SetCallstack(engine, expression.Location);
         }
 

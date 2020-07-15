@@ -202,7 +202,7 @@ namespace Jint.Native
             }
             else
             {
-                iterator = new IteratorInstance.ObjectWrapper(obj);
+                iterator = new IteratorInstance.ObjectIterator(obj);
             }
             return true;
         }
@@ -413,6 +413,8 @@ namespace Jint.Native
             return callable.Call(v, arguments);
         }
 
+        public virtual bool HasOwnProperty(JsValue property) => false;
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public JsValue Get(JsValue property)
         {
@@ -559,7 +561,7 @@ namespace Jint.Native
                         Value = ((JsBoolean) value)._value + " (bool)";
                         break;
                     case Types.String:
-                        Value = value.AsStringWithoutTypeCheck() + " (string)";
+                        Value = value.ToString() + " (string)";
                         break;
                     case Types.Number:
                         Value = ((JsNumber) value)._value + " (number)";
@@ -594,6 +596,8 @@ namespace Jint.Native
         {
             return this;
         }
+        
+        internal virtual bool IsCallable => this is ICallable;
 
         internal static bool SameValue(JsValue x, JsValue y)
         {

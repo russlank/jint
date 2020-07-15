@@ -1,5 +1,6 @@
 using Esprima.Ast;
 using Jint.Native;
+using Jint.Runtime.Environments;
 using Jint.Runtime.References;
 
 namespace Jint.Runtime.Interpreter.Expressions
@@ -53,9 +54,11 @@ namespace Jint.Runtime.Interpreter.Expressions
             {
                 baseReferenceName = _objectIdentifierExpression._expressionName.Key.Name;
                 var strict = isStrictModeCode;
-                TryGetIdentifierEnvironmentWithBindingValue(
-                    strict,
+                var env = _engine.ExecutionContext.LexicalEnvironment;
+                LexicalEnvironment.TryGetIdentifierEnvironmentWithBindingValue(
+                    env,
                     _objectIdentifierExpression._expressionName,
+                    strict,
                     out _,
                     out baseValue);
             }
@@ -81,7 +84,7 @@ namespace Jint.Runtime.Interpreter.Expressions
             }
 
             var property = _determinedProperty ?? _propertyExpression.GetValue();
-            TypeConverter.CheckObjectCoercible(_engine, baseValue, (MemberExpression) _expression, baseReferenceName);
+            TypeConverter.CheckObjectCoercible(_engine, baseValue, (MemberExpression) _expression, _determinedProperty?.ToString() ?? baseReferenceName);
             return _engine._referencePool.Rent(baseValue,  TypeConverter.ToPropertyKey(property), isStrictModeCode);
         }
     }

@@ -105,7 +105,8 @@ namespace Jint
         };
 
         // shared frozen version
-        internal readonly PropertyDescriptor _getSetThrower;
+        internal readonly PropertyDescriptor _callerCalleeArgumentsThrowerConfigurable;
+        internal readonly PropertyDescriptor _callerCalleeArgumentsThrowerNonConfigurable;
 
         internal readonly struct ClrPropertyDescriptorFactoriesKey : IEquatable<ClrPropertyDescriptorFactoriesKey>
         {
@@ -146,11 +147,26 @@ namespace Jint
 
         internal readonly JintCallStack CallStack = new JintCallStack();
 
-        public Engine() : this(null)
+        /// <summary>
+        /// Constructs a new engine instance.
+        /// </summary>
+        public Engine() : this((Action<Options>) null)
         {
         }
 
+        /// <summary>
+        /// Constructs a new engine instance and allows customizing options.
+        /// </summary>
         public Engine(Action<Options> options)
+            : this((engine, opts) => options?.Invoke(opts))
+        {
+        }
+
+        /// <summary>
+        /// Constructs a new engine instance and allows customizing options.
+        /// </summary>
+        /// <remarks>The provided engine instance in callback is not guaranteed to be fully configured</remarks>
+        public Engine(Action<Engine, Options> options)
         {
             _executionContexts = new ExecutionContextStack(2);
 
@@ -158,7 +174,8 @@ namespace Jint
 
             Object = ObjectConstructor.CreateObjectConstructor(this);
             Function = FunctionConstructor.CreateFunctionConstructor(this);
-            _getSetThrower = new GetSetPropertyDescriptor.ThrowerPropertyDescriptor(Function.ThrowTypeError);
+            _callerCalleeArgumentsThrowerConfigurable = new GetSetPropertyDescriptor.ThrowerPropertyDescriptor(this,  PropertyFlag.Configurable | PropertyFlag.CustomJsValue, "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them");
+            _callerCalleeArgumentsThrowerNonConfigurable = new GetSetPropertyDescriptor.ThrowerPropertyDescriptor(this, PropertyFlag.CustomJsValue, "'caller', 'callee', and 'arguments' properties may not be accessed on strict mode functions or the arguments objects for calls to them");
 
             Symbol = SymbolConstructor.CreateSymbolConstructor(this);
             Array = ArrayConstructor.CreateArrayConstructor(this);
@@ -193,9 +210,12 @@ namespace Jint
             // create the global execution context http://www.ecma-international.org/ecma-262/5.1/#sec-10.4.1.1
             EnterExecutionContext(GlobalEnvironment, GlobalEnvironment);
 
+            Eval = new EvalFunctionInstance(this);
+            Global.SetProperty(CommonProperties.Eval, new PropertyDescriptor(Eval, PropertyFlag.Configurable | PropertyFlag.Writable));
+
             Options = new Options();
 
-            options?.Invoke(Options);
+            options?.Invoke(this, Options);
 
             // gather some options as fields for faster checks
             _isDebugMode = Options.IsDebugMode;
@@ -206,9 +226,6 @@ namespace Jint
             _referencePool = new ReferencePool();
             _argumentsInstancePool = new ArgumentsInstancePool(this);
             _jsValueArrayPool = new JsValueArrayPool();
-
-            Eval = new EvalFunctionInstance(this);
-            Global.SetProperty(CommonProperties.Eval, new PropertyDescriptor(Eval, PropertyFlag.Configurable | PropertyFlag.Writable));
 
             if (Options._IsClrAllowed)
             {
@@ -450,8 +467,7 @@ namespace Jint
 
             if (baseValue._type == InternalTypes.Undefined)
             {
-                if (_referenceResolver != null &&
-                    _referenceResolver.TryUnresolvableReference(this, reference, out JsValue val))
+                if (_referenceResolver.TryUnresolvableReference(this, reference, out JsValue val))
                 {
                     return val;
                 }
@@ -459,8 +475,7 @@ namespace Jint
                 ExceptionHelper.ThrowReferenceError(this, reference);
             }
 
-            if (_referenceResolver != null
-                && (baseValue._type & InternalTypes.ObjectEnvironmentRecord) == 0
+            if ((baseValue._type & InternalTypes.ObjectEnvironmentRecord) == 0
                 && _referenceResolver.TryPropertyReference(this, reference, ref baseValue))
             {
                 return baseValue;
