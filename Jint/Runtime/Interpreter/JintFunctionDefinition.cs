@@ -1,9 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Esprima.Ast;
 using Jint.Native;
 using Jint.Native.Function;
-using Jint.Runtime.Interpreter.Statements;
+using Jint.Runtime.Interpreter.Expressions;
 
 namespace Jint.Runtime.Interpreter
 {
@@ -14,8 +15,9 @@ namespace Jint.Runtime.Interpreter
     {
         private readonly Engine _engine;
         
-        private JintStatement _body;
-        
+        private JintExpression _bodyExpression;
+        private JintStatementList _bodyStatementList;
+
         public readonly string Name;
         public readonly bool Strict;
         public readonly IFunction Function;
@@ -47,21 +49,32 @@ namespace Jint.Runtime.Interpreter
             }
         }
 
-        public JintStatement Body
+        internal Completion Execute()
         {
-            get
+            if (Function.Expression)
             {
-                if (_body != null)
-                {
-                    return _body;
-                }
-
-                _body = Function.Expression
-                    ? (JintStatement) new JintReturnStatement(_engine, new ReturnStatement((Expression) Function.Body))
-                    : new JintBlockStatement(_engine, (BlockStatement) Function.Body);
-
-                return _body;
+                _bodyExpression ??= JintExpression.Build(_engine, (Expression) Function.Body);
+                var jsValue = _bodyExpression?.GetValue() ?? Undefined.Instance;
+                return new Completion(CompletionType.Return, jsValue, null, Function.Body.Location);
             }
+
+            var blockStatement = (BlockStatement) Function.Body;
+            _bodyStatementList ??= new JintStatementList(_engine, blockStatement, blockStatement.Body);
+            return _bodyStatementList.Execute();
+        }
+
+        internal async Task<Completion> ExecuteAsync()
+        {
+            if (Function.Expression)
+            {
+                _bodyExpression ??= JintExpression.Build(_engine, (Expression)Function.Body);
+                var jsValue = await _bodyExpression?.GetValueAsync() ?? Undefined.Instance;
+                return new Completion(CompletionType.Return, jsValue, null, Function.Body.Location);
+            }
+
+            var blockStatement = (BlockStatement)Function.Body;
+            _bodyStatementList ??= new JintStatementList(_engine, blockStatement, blockStatement.Body);
+            return await _bodyStatementList.ExecuteAsync();
         }
 
         internal State Initialize(Engine engine, FunctionInstance functionInstance)

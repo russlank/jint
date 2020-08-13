@@ -110,7 +110,7 @@ namespace Jint.Native.Function
                         arguments,
                         localEnv);
 
-                    var result = _function.Body.Execute();
+                    var result = _function.Execute();
                     var value = result.GetValueOrDefault().Clone();
                     argumentsInstance?.FunctionWasCalled();
 
@@ -184,7 +184,7 @@ namespace Jint.Native.Function
                         arguments,
                         localEnv);
 
-                    var result = await _function.Body.ExecuteAsync();
+                    var result = await _function.ExecuteAsync();
                     var value = result.GetValueOrDefault().Clone();
                     argumentsInstance?.FunctionWasCalled();
 
