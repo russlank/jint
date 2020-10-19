@@ -36,9 +36,10 @@ namespace Jint.Tests.Runtime
         {
         }
 
-        private void RunTest(string source)
+        private async void RunTest(string source)
         {
             _engine.Execute(source);
+            //await _engine.ExecuteAsync(source);
         }
 
         [Fact]
@@ -53,6 +54,39 @@ namespace Jint.Tests.Runtime
                 assert(y === true);
                 assert(z === 'foo');
             ");
+        }
+
+        [Fact]
+        public void CanAccessMemberNamedItem()
+        {
+            _engine.Execute(@"
+                    function item2(arg) {
+                        return arg.item2
+                    }
+                    function item1(arg) {
+                        return arg.item
+                    }
+                    function item3(arg) {
+                        return arg.Item
+                    }
+            ");
+
+            var argument = new Dictionary<string, object>
+            {
+                {"item2", "item2 value"},
+                {"item", "item value"},
+                {"Item", "Item value"}
+            };
+
+            Assert.Equal("item2 value", _engine.Invoke("item2", argument));
+            Assert.Equal("item value", _engine.Invoke("item1", argument));
+            Assert.Equal("Item value", _engine.Invoke("item3", argument));
+
+            var company = new Company("Acme Ltd");
+            _engine.SetValue("c", company);
+            Assert.Equal("item thingie", _engine.Execute("c.Item").GetCompletionValue());
+            Assert.Equal("item thingie", _engine.Execute("c.item").GetCompletionValue());
+            Assert.Equal("value", _engine.Execute("c['key']").GetCompletionValue());
         }
 
         [Fact]
@@ -2145,7 +2179,7 @@ namespace Jint.Tests.Runtime
 
             engine.Execute("var jsObj = { 'key1' :'value1', 'key2' : 'value2' }");
 
-            engine.SetValue("netObj", new Dictionary<string, object>()
+            engine.SetValue("netObj", new Dictionary<string, object>
             {
                 {"key1", "value1"},
                 {"key2", "value2"},
@@ -2172,6 +2206,49 @@ namespace Jint.Tests.Runtime
             jsValue = engine.Execute("showProps(jsObj, 'theObject')").GetCompletionValue().AsString();
             clrValue = engine.Execute("showProps(jsObj, 'theObject')").GetCompletionValue().AsString();
             Assert.Equal(jsValue, clrValue);
+        }
+
+        [Fact]
+        public void ShouldHideSpecificMembers()
+        {
+            var engine = new Engine(options => options.SetMemberAccessor((e, target, member) =>
+            {
+                if (target is HiddenMembers)
+                {
+                    if (member == nameof(HiddenMembers.Member2) || member == nameof(HiddenMembers.Method2))
+                    {
+                        return JsValue.Undefined;
+                    }
+                }
+
+                return null;
+            }));
+
+            engine.SetValue("m", new HiddenMembers());
+
+            Assert.Equal("Member1", engine.Execute("m.Member1").GetCompletionValue().ToString());
+            Assert.Equal("undefined", engine.Execute("m.Member2").GetCompletionValue().ToString());
+            Assert.Equal("Method1", engine.Execute("m.Method1()").GetCompletionValue().ToString());
+            // check the method itself, not its invokation as it would mean invoking "undefined"
+            Assert.Equal("undefined", engine.Execute("m.Method2").GetCompletionValue().ToString());
+        }
+
+        [Fact]
+        public void ShouldOverrideMembers()
+        {
+            var engine = new Engine(options => options.SetMemberAccessor((e, target, member) =>
+            {
+                if (target is HiddenMembers && member == nameof(HiddenMembers.Member1))
+                {
+                    return "Orange";
+                }
+
+                return null;
+            }));
+            
+            engine.SetValue("m", new HiddenMembers());
+
+            Assert.Equal("Orange", engine.Execute("m.Member1").GetCompletionValue().ToString());
         }
     }
 }

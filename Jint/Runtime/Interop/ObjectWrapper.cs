@@ -167,9 +167,21 @@ namespace Jint.Runtime.Interop
                 SetProperty(GlobalSymbolRegistry.Iterator, iteratorProperty);
                 return iteratorProperty;
             }
-            
+
+            var memberAccessor = Engine.Options._MemberAccessor;
+
+            if (memberAccessor != null)
+            {
+                var result = memberAccessor.Invoke(Engine, Target, property.ToString());
+
+                if (result != null)
+                {
+                    return new PropertyDescriptor(result, PropertyFlag.OnlyEnumerable);
+                }
+            }
+
             var type = Target.GetType();
-            var key = new Engine.ClrPropertyDescriptorFactoriesKey(type, property.ToString());
+            var key = new ClrPropertyDescriptorFactoriesKey(type, property.ToString());
 
             if (!_engine.ClrPropertyDescriptorFactories.TryGetValue(key, out var factory))
             {
@@ -189,11 +201,13 @@ namespace Jint.Runtime.Interop
             // properties and fields cannot be numbers
             if (!isNumber)
             {
-                // look for a property
+                // look for a property, bit be wary of indexers, we don't want indexers which have name "Item" to take precedence
                 PropertyInfo property = null;
                 foreach (var p in type.GetProperties(BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public))
                 {
-                    if (EqualsIgnoreCasing(p.Name, propertyName))
+                    // only if it's not an indexer, we can do case-ignoring matches
+                    var isStandardIndexer = p.GetIndexParameters().Length == 1 && p.Name == "Item";
+                    if (!isStandardIndexer && EqualsIgnoreCasing(p.Name, propertyName))
                     {
                         property = p;
                         break;

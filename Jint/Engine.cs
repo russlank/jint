@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Esprima;
 using Esprima.Ast;
 using Jint.Native;
@@ -108,40 +109,6 @@ namespace Jint
         internal readonly PropertyDescriptor _callerCalleeArgumentsThrowerConfigurable;
         internal readonly PropertyDescriptor _callerCalleeArgumentsThrowerNonConfigurable;
 
-        internal readonly struct ClrPropertyDescriptorFactoriesKey : IEquatable<ClrPropertyDescriptorFactoriesKey>
-        {
-            public ClrPropertyDescriptorFactoriesKey(Type type, Key propertyName)
-            {
-                Type = type;
-                PropertyName = propertyName;
-            }
-
-            private readonly Type Type;
-            private readonly Key PropertyName;
-
-            public bool Equals(ClrPropertyDescriptorFactoriesKey other)
-            {
-                return Type == other.Type && PropertyName == other.PropertyName;
-            }
-
-            public override bool Equals(object obj)
-            {
-                if (ReferenceEquals(null, obj))
-                {
-                    return false;
-                }
-                return obj is ClrPropertyDescriptorFactoriesKey other && Equals(other);
-            }
-
-            public override int GetHashCode()
-            {
-                unchecked
-                {
-                    return (Type.GetHashCode() * 397) ^ PropertyName.GetHashCode();
-                }
-            }
-        }
-
         internal readonly Dictionary<ClrPropertyDescriptorFactoriesKey, Func<Engine, object, PropertyDescriptor>> ClrPropertyDescriptorFactories =
             new Dictionary<ClrPropertyDescriptorFactoriesKey, Func<Engine, object, PropertyDescriptor>>();
 
@@ -159,6 +126,13 @@ namespace Jint
         /// </summary>
         public Engine(Action<Options> options)
             : this((engine, opts) => options?.Invoke(opts))
+        {
+        }
+
+        /// <summary>
+        /// Constructs a new engine with a custom <see cref="Options"/> instance.
+        /// </summary>
+        public Engine(Options options) : this((e, o) => e.Options = options)
         {
         }
 
@@ -237,7 +211,10 @@ namespace Jint
             }
 
             ClrTypeConverter = new DefaultTypeConverter(this);
+
+            Options.Apply(this);
         }
+    
 
         internal LexicalEnvironment GlobalEnvironment { get; }
         public GlobalObject Global { get; }
@@ -277,7 +254,7 @@ namespace Jint
 
         internal long CurrentMemoryUsage { get; private set; }
 
-        internal Options Options { [MethodImpl(MethodImplOptions.AggressiveInlining)] get; }
+        internal Options Options { [MethodImpl(MethodImplOptions.AggressiveInlining)] get; private set; }
 
         #region Debugger
         public delegate StepMode DebugStepDelegate(object sender, DebugInformation e);
@@ -399,6 +376,44 @@ namespace Jint
                 var list = new JintStatementList(this, null, program.Body);
                 
                 var result = list.Execute();
+                if (result.Type == CompletionType.Throw)
+                {
+                    var ex = new JavaScriptException(result.GetValueOrDefault()).SetCallstack(this, result.Location);
+                    throw ex;
+                }
+
+                _completionValue = result.GetValueOrDefault();
+            }
+
+            return this;
+        }
+
+        public Task<Engine> ExecuteAsync(string source)
+        {
+            return ExecuteAsync(source, DefaultParserOptions);
+        }
+
+        public Task<Engine> ExecuteAsync(string source, ParserOptions parserOptions)
+        {
+            var parser = new JavaScriptParser(source, parserOptions);
+            return ExecuteAsync(parser.ParseScript());
+        }
+
+        public async Task<Engine> ExecuteAsync(Script program)
+        {
+            ResetConstraints();
+            ResetLastStatement();
+            ResetCallStack();
+
+            using (new StrictModeScope(_isStrict || program.Strict))
+            {
+                GlobalDeclarationInstantiation(
+                    program,
+                    GlobalEnvironment);
+
+                var list = new JintStatementList(this, null, program.Body);
+
+                var result = await list.ExecuteAsync();
                 if (result.Type == CompletionType.Throw)
                 {
                     var ex = new JavaScriptException(result.GetValueOrDefault()).SetCallstack(this, result.Location);
@@ -680,6 +695,66 @@ namespace Jint
             }
 
             var result = callable.Call(JsValue.FromObject(this, thisObj), items);
+            _jsValueArrayPool.ReturnArray(items);
+
+            return result;
+        }
+
+
+        /// <summary>
+        /// Invoke the current value as function.
+        /// </summary>
+        /// <param name="propertyName">The name of the function to call.</param>
+        /// <param name="arguments">The arguments of the function call.</param>
+        /// <returns>The value returned by the function call.</returns>
+        public Task<JsValue> InvokeAsync(string propertyName, params object[] arguments)
+        {
+            return InvokeAsync(propertyName, null, arguments);
+        }
+
+        /// <summary>
+        /// Invoke the current value as function.
+        /// </summary>
+        /// <param name="propertyName">The name of the function to call.</param>
+        /// <param name="thisObj">The this value inside the function call.</param>
+        /// <param name="arguments">The arguments of the function call.</param>
+        /// <returns>The value returned by the function call.</returns>
+        public Task<JsValue> InvokeAsync(string propertyName, object thisObj, object[] arguments)
+        {
+            var value = GetValue(propertyName);
+
+            return InvokeAsync(value, thisObj, arguments);
+        }
+
+        /// <summary>
+        /// Invoke the current value as function.
+        /// </summary>
+        /// <param name="value">The function to call.</param>
+        /// <param name="arguments">The arguments of the function call.</param>
+        /// <returns>The value returned by the function call.</returns>
+        public Task<JsValue> InvokeAsync(JsValue value, params object[] arguments)
+        {
+            return InvokeAsync(value, null, arguments);
+        }
+
+        /// <summary>
+        /// Invoke the current value as function.
+        /// </summary>
+        /// <param name="value">The function to call.</param>
+        /// <param name="thisObj">The this value inside the function call.</param>
+        /// <param name="arguments">The arguments of the function call.</param>
+        /// <returns>The value returned by the function call.</returns>
+        public async Task<JsValue> InvokeAsync(JsValue value, object thisObj, object[] arguments)
+        {
+            var callable = value as ICallable ?? ExceptionHelper.ThrowArgumentException<ICallable>("Can only invoke functions");
+
+            var items = _jsValueArrayPool.RentArray(arguments.Length);
+            for (int i = 0; i < arguments.Length; ++i)
+            {
+                items[i] = JsValue.FromObject(this, arguments[i]);
+            }
+
+            var result = await callable.CallAsync(JsValue.FromObject(this, thisObj), items);
             _jsValueArrayPool.ReturnArray(items);
 
             return result;

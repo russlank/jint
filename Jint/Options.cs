@@ -10,6 +10,8 @@ using Jint.Runtime.References;
 
 namespace Jint
 {
+    public delegate JsValue MemberAccessorDelegate(Engine engine, object target, string member);
+
     public sealed class Options
     {
         private readonly List<IConstraint> _constraints = new List<IConstraint>();
@@ -19,6 +21,7 @@ namespace Jint
         private bool _allowClrWrite = true;
         private readonly List<IObjectConverter> _objectConverters = new List<IObjectConverter>();
         private Func<Engine, object, ObjectInstance> _wrapObjectHandler;
+        private MemberAccessorDelegate _memberAccessor;
         private int _maxRecursionDepth = -1;
         private TimeSpan _regexTimeoutInterval = TimeSpan.FromSeconds(10);
         private CultureInfo _culture = CultureInfo.CurrentCulture;
@@ -26,6 +29,7 @@ namespace Jint
         private List<Assembly> _lookupAssemblies = new List<Assembly>();
         private Predicate<Exception> _clrExceptionsHandler;
         private IReferenceResolver _referenceResolver = DefaultReferenceResolver.Instance;
+        private readonly List<Action<Engine>> _configurations = new List<Action<Engine>>();
 
         /// <summary>
         /// Run the script in strict mode.
@@ -83,6 +87,22 @@ namespace Jint
         public Options SetWrapObjectHandler(Func<Engine, object, ObjectInstance> wrapObjectHandler)
         {
             _wrapObjectHandler = wrapObjectHandler;
+            return this;
+        }
+
+
+        /// <summary>
+        /// Registers a delegate that is called when CLR members are invoked. This allows
+        /// to change what values are returned for specific CLR objects, or if any value 
+        /// is returned at all.
+        /// </summary>
+        /// <param name="accessor">
+        /// The delegate to invoke for each CLR member. If the delegate 
+        /// returns <c>null</c>, the standard evaluation is performed.
+        /// </param>
+        public Options SetMemberAccessor(MemberAccessorDelegate accessor)
+        {
+            _memberAccessor = accessor;
             return this;
         }
 
@@ -179,6 +199,29 @@ namespace Jint
             return this;
         }
 
+        /// <summary>
+        /// Registers some custom logic to apply on an <see cref="Engine"/> instance when the options
+        /// are loaded.
+        /// </summary>
+        /// <param name="configuration">The action to register.</param>
+        public Options Configure(Action<Engine> configuration)
+        {
+            _configurations.Add(configuration);
+            return this;
+        }
+
+        /// <summary>
+        /// Called by the <see cref="Engine"/> instance that loads this <see cref="Options" />
+        /// once it is loaded.
+        /// </summary>
+        internal void Apply(Engine engine)
+        {
+            foreach (var configuration in _configurations)
+            {
+                configuration?.Invoke(engine);
+            }
+        }
+
         internal bool IsStrict => _strict;
 
         internal bool _IsDebuggerStatementAllowed => _allowDebuggerStatement;
@@ -198,6 +241,7 @@ namespace Jint
         internal List<IConstraint> _Constraints => _constraints;
 
         internal Func<Engine, object, ObjectInstance> _WrapObjectHandler => _wrapObjectHandler;
+        internal MemberAccessorDelegate _MemberAccessor => _memberAccessor;
 
         internal int MaxRecursionDepth => _maxRecursionDepth;
 

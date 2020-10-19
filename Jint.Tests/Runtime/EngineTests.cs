@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using Esprima;
 using Esprima.Ast;
 using Jint.Native;
@@ -17,16 +18,14 @@ namespace Jint.Tests.Runtime
     public class EngineTests : IDisposable
     {
         private readonly Engine _engine;
+        private readonly Engine _asyncEngine;
         private int countBreak = 0;
         private StepMode stepMode;
 
         public EngineTests(ITestOutputHelper output)
         {
-            _engine = new Engine()
-                .SetValue("log", new Action<object>( o => output.WriteLine(o.ToString())))
-                .SetValue("assert", new Action<bool>(Assert.True))
-                .SetValue("equal", new Action<object, object>(Assert.Equal))
-                ;
+            _engine = CreateEngine(output);
+            _asyncEngine = CreateEngine(output);
         }
 
         void IDisposable.Dispose()
@@ -34,9 +33,18 @@ namespace Jint.Tests.Runtime
         }
 
 
-        private void RunTest(string source)
+        private Engine CreateEngine(ITestOutputHelper output)
+        {
+            return new Engine()
+                .SetValue("log", new Action<object>(o => output.WriteLine(o.ToString())))
+                .SetValue("assert", new Action<bool>(Assert.True))
+                .SetValue("equal", new Action<object, object>(Assert.Equal));
+        }
+
+        private async void RunTest(string source)
         {
             _engine.Execute(source);
+            await _asyncEngine.ExecuteAsync(source);
         }
 
         private string GetEmbeddedFile(string filename)
@@ -735,6 +743,40 @@ namespace Jint.Tests.Runtime
         {
             Assert.Throws<TimeoutException>(
                 () => new Engine(cfg => cfg.TimeoutInterval(new TimeSpan(0, 0, 0, 0, 500))).Execute("while(true);")
+            );
+        }
+
+        [Fact]
+        public void ShouldThrowExecutionCanceled()
+        {
+            Assert.Throws<ExecutionCanceledException>(
+                () =>
+                {
+                    using (var tcs = new CancellationTokenSource())
+                    using (var waitHandle = new ManualResetEvent(false))
+                    {
+                        var engine = new Engine(cfg => cfg.CancellationToken(tcs.Token));
+
+                        ThreadPool.QueueUserWorkItem(state =>
+                        {
+                            waitHandle.WaitOne();
+                            tcs.Cancel();
+                        });
+
+                        engine.SetValue("waitHandle", waitHandle);
+                        engine.Execute(@"
+                            function sleep(millisecondsTimeout) {
+                                var totalMilliseconds = new Date().getTime() + millisecondsTimeout;
+
+                                while (new Date() < totalMilliseconds) { }
+                            }
+
+                            sleep(100);
+                            waitHandle.Set();
+                            sleep(5000);
+                        ");
+                    }
+                }
             );
         }
 
@@ -2845,6 +2887,18 @@ x.test = {
                         .AddObjectConverter<TestObjectConverter>();
                 })
                 .SetValue("a", 1);
+        }
+
+        [Fact]
+        public void ShouldReuseOptions()
+        {
+            var options = new Options().Configure(e => e.SetValue("x", 1));
+
+            var engine1 = new Engine(options);
+            var engine2 = new Engine(options);
+
+            Assert.Equal(1, Convert.ToInt32(engine1.GetValue("x").ToObject()));
+            Assert.Equal(1, Convert.ToInt32(engine2.GetValue("x").ToObject()));
         }
 
         private class Wrapper

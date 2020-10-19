@@ -4,6 +4,7 @@ using Jint.Runtime;
 using Jint.Runtime.Descriptors;
 using Jint.Runtime.Environments;
 using Jint.Runtime.Interpreter.Statements;
+using System.Threading.Tasks;
 
 namespace Jint.Native.Function
 {
@@ -104,5 +105,8 @@ namespace Jint.Native.Function
                 }
             }
         }
+
+        public override Task<JsValue> CallAsync(JsValue thisObject, JsValue[] arguments) => Task.FromResult(Call(thisObject, arguments));
+
     }
 }

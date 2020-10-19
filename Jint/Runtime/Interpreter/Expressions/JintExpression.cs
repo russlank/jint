@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using Esprima.Ast;
 using Jint.Native;
 using Jint.Native.Array;
@@ -31,6 +32,11 @@ namespace Jint.Runtime.Interpreter.Expressions
             return _engine.GetValue(Evaluate(), true);
         }
 
+        public async virtual Task<JsValue> GetValueAsync()
+        {
+            return _engine.GetValue(await EvaluateAsync(), true);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public object Evaluate()
         {
@@ -43,6 +49,18 @@ namespace Jint.Runtime.Interpreter.Expressions
             return EvaluateInternal();
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Task<object> EvaluateAsync()
+        {
+            _engine._lastSyntaxNode = _expression;
+            if (!_initialized)
+            {
+                Initialize();
+                _initialized = true;
+            }
+            return EvaluateInternalAsync();
+        }
+
         /// <summary>
         /// Opportunity to build one-time structures and caching based on lexical context.
         /// </summary>
@@ -51,6 +69,8 @@ namespace Jint.Runtime.Interpreter.Expressions
         }
 
         protected abstract object EvaluateInternal();
+
+        protected abstract Task<object> EvaluateInternalAsync();
 
         protected internal static JintExpression Build(Engine engine, Expression expression)
         {
@@ -308,6 +328,15 @@ namespace Jint.Runtime.Interpreter.Expressions
             for (var i = 0; i < jintExpressions.Length; i++)
             {
                 targetArray[i] = jintExpressions[i].GetValue().Clone();
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        protected async static Task BuildArgumentsAsync(JintExpression[] jintExpressions, JsValue[] targetArray)
+        {
+            for (var i = 0; i < jintExpressions.Length; i++)
+            {
+                targetArray[i] = (await jintExpressions[i].GetValueAsync()).Clone();
             }
         }
 

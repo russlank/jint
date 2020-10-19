@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using Jint.Collections;
 using Jint.Native.Function;
 using Jint.Native.Iterator;
@@ -474,6 +475,8 @@ namespace Jint.Native.Object
             return o.EnumerableOwnPropertyNames(EnumerableOwnPropertyNamesKind.Value);
         }
 
+        public override Task<JsValue> CallAsync(JsValue thisObject, JsValue[] arguments) => Task.FromResult(Call(thisObject, arguments));
+
         private sealed class CreateDataPropertyOnObject : ICallable
         {
             internal static readonly CreateDataPropertyOnObject Instance = new CreateDataPropertyOnObject();
@@ -492,6 +495,11 @@ namespace Jint.Native.Object
                 o.CreateDataPropertyOrThrow(propertyKey, value);
 
                 return Undefined;
+            }
+
+            public Task<JsValue> CallAsync(JsValue thisObject, JsValue[] arguments)
+            {
+                return Task.FromResult(Call(thisObject, arguments));
             }
         }
     }

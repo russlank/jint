@@ -1,5 +1,5 @@
 ﻿using System.Collections.Generic;
-
+using System.Threading.Tasks;
 using Jint.Native.Object;
 using Jint.Runtime;
 using Jint.Runtime.Descriptors;
@@ -181,7 +181,7 @@ namespace Jint.Native.Proxy
 
         public override PropertyDescriptor GetOwnProperty(JsValue property)
         {
-            if (!TryCallHandler(TrapGetOwnPropertyDescriptor, new[] {_target, property, this}, out var result))
+            if (!TryCallHandler(TrapGetOwnPropertyDescriptor, new[] { _target, property }, out var result))
             {
                 return _target.GetOwnProperty(property);
             }
@@ -483,5 +483,7 @@ namespace Jint.Native.Proxy
         }
         
         public override string ToString() => "function () { [native code] }";
+
+        public Task<JsValue> CallAsync(JsValue thisObject, JsValue[] arguments) => Task.FromResult(Call(thisObject, arguments));
     }
 }
